@@ -1,3 +1,4 @@
+package main.java.org.fbk.hlt.newsreader;
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -14,8 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package main.java.org.fbk.hlt.newsreader;
 
 import fbk.hlt.utility.archive.CatalogOfGzippedTexts;
 import org.xml.sax.Attributes;
@@ -45,7 +44,7 @@ public class ZipManager {
     private String newsUrl = "";
     private String zipPath;
     static private CatalogOfGzippedTexts cgtarchive;
-    
+
     public int getCGTSize () {
         if (cgtarchive != null)
             return cgtarchive.size();
@@ -150,7 +149,7 @@ public class ZipManager {
     public void zip2cgt (String cgtPath) throws IOException {
         try {
             File archiveFile = new File(cgtPath);
-            if (!archiveFile.getParentFile().exists())
+            if (archiveFile.getParentFile() != null && !archiveFile.getParentFile().exists())
                 archiveFile.getParentFile().mkdirs();
             cgtarchive = new CatalogOfGzippedTexts(cgtPath, "rw");
         } catch (Exception e) {
@@ -159,8 +158,7 @@ public class ZipManager {
 
         ZipFile zf = new ZipFile(zipPath);
         try {
-            for (Enumeration<? extends ZipEntry> e = zf.entries();
-                 e.hasMoreElements();) {
+            for (Enumeration<? extends ZipEntry> e = zf.entries(); e.hasMoreElements();) {
                 ZipEntry ze = e.nextElement();
                 newsUrl = ze.getName();
                 if (newsUrl.endsWith(".xml")) {
