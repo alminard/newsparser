@@ -1,3 +1,4 @@
+package fbk.hlt.utility.archive;
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -15,15 +16,13 @@
  * limitations under the License.
  */
 
-package fbk.hlt.utility.archive;
-
 import java.util.*;
 import java.io.*;
 
 /**
- * Author: Christian Girardi (cgirardi@fbk.eu)
+ * User: cgirardi
  * Date: 1-feb-2007
-
+ * Time: 21.23.41
 
  Strategia:
  - tengo aperto il canale del file, mantengo all'inizio del file tre numeri per sapere:
@@ -39,8 +38,6 @@ import java.io.*;
  * - per la normalizzazione delle chiavi uso new String(key.getBytes()) così vengono ordinate correttamente anche stringhe UTF8
 
  */
-
-
 public class SetFile implements Iterable<String> {
     private Hashtable<String, String> newkeys = new Hashtable<String,String>();
     private LinkedHashMap<String,Long> goodjumpposition = new LinkedHashMap<String,Long>();
@@ -48,7 +45,7 @@ public class SetFile implements Iterable<String> {
     private RandomAccessFile rafile;
     private boolean isReadable = false;
     private String[] cache = {"",""};
-    private int countmergedfiles;
+    //private int countmergedfiles;
     private static final String SEPARATOR = "@";
     private long availableMemory = 0;
     private long unsortedPos = 0;
@@ -86,7 +83,7 @@ public class SetFile implements Iterable<String> {
                 }
 
             } catch (IOException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+                e.printStackTrace();
             }
         }
 
@@ -103,9 +100,15 @@ public class SetFile implements Iterable<String> {
             try {
                 rafile.seek(unsortedPos);
                 String line;
-                while((line = rafile.readLine()) != null) {
+                //while((line = rafile.readLine()) != null) {
+                while((line = rafile.readUTF()) != null) {
                     if (line.lastIndexOf(SEPARATOR) > 0)
                         newkeys.put(line.substring(0,line.lastIndexOf(SEPARATOR)),line.substring(line.lastIndexOf(SEPARATOR) +1));
+                    rafile.readLine();
+                    //System.out.println("# "+line + " " + rafile.getFilePointer() + " " + rafile.length());
+                    if (rafile.getFilePointer() >= rafile.length()) {
+                        break;
+                    }
                 }
                 //controllo che le entry dell hash siano uguali a unsortedSize
                 if (unsortedSize != newkeys.size()) {
@@ -128,15 +131,19 @@ public class SetFile implements Iterable<String> {
     private void setGoodJumps () throws IOException {
         goodjumpposition.clear();
         if (this.size() > 10000) {
-            rafile.seek(16);
-            String line = rafile.readLine();
-            goodjumpposition.put(line.substring(0,line.lastIndexOf(SEPARATOR)), (long) 16);
+            readUnsortedPosition();
+            long currpos = rafile.getFilePointer();
+            //String line = rafile.readLine();
+            String line = rafile.readUTF();
+            goodjumpposition.put(line.substring(0,line.lastIndexOf(SEPARATOR)), currpos);
             int rate = (int) rafile.length() / 2000;
             for (int i=1; i < 2000; i++) {
                 rafile.seek(rate * i);
                 rafile.readLine();
+                //rafile.readUTF();
                 long pos = rafile.getFilePointer();
-                line = rafile.readLine();
+                //line = rafile.readLine();
+                line = rafile.readUTF();
                 goodjumpposition.put(line.substring(0,line.lastIndexOf(SEPARATOR)), pos);
 
             }
@@ -144,7 +151,7 @@ public class SetFile implements Iterable<String> {
         //System.err.println("goodjumpposition : " + goodjumpposition.size());
     }
 
-    private long getMinPosition (String key) {
+    private long getMinPosition (String key) throws IOException {
         long min = 0;
         for (Map.Entry entry : goodjumpposition.entrySet()) {
             if (((String) entry.getKey()).compareTo(key) < 0) {
@@ -158,14 +165,9 @@ public class SetFile implements Iterable<String> {
                 }
             }
         }
-        return 16;
+        readUnsortedPosition();
+        return rafile.getFilePointer();
     }
-
-    private long getMaxPosition (String key) {
-        return this.unsortedPos;
-    }
-
-
 
     public boolean contains (String key) {
         if (get(key) != null) {
@@ -176,13 +178,12 @@ public class SetFile implements Iterable<String> {
 
     public synchronized String get(String key) {
         if (key != null) {
-            key = key.replaceAll("[\n|\r]+","").trim();
+            key = key.replaceAll("[\n|\r]+","").trim(); //.replaceAll("\\p{Cntrl}","")
             if  (key.length() > 0) {
                 key = new String(key.getBytes());
                 //return this.binarySearch(key);
                 if (cache[0].equals(key)) {
                     return cache[1];
-
                 } else {
                     cache[0] = key;
 
@@ -203,16 +204,16 @@ public class SetFile implements Iterable<String> {
             if  (key.length() > 0) {
                 key = new String(key.getBytes());
 
-
                 //if (!this.contains(key)) {
                 value = new String(value.getBytes());
                 value= value.replaceAll("[\n|\r]+", RETURN_TAG).trim();
                 if (DEBUG)
-                    System.out.println("PUT " + key +", " + value + " ("+newkeys.size()+")");
+                    System.err.println("PUT " + key +", " + value + " ("+newkeys.size()+")");
                 try {
                     rafile.seek(rafile.length());
-                    rafile.writeBytes(key + SEPARATOR + value +"\n");
-
+                    //rafile.writeBytes(key + SEPARATOR + value +"\n");
+                    rafile.writeUTF(key + SEPARATOR + value);
+                    rafile.writeBytes("\n");
                     writeUnsortedSize(++unsortedSize);
                 } catch (IOException e) {
                     return false;
@@ -221,7 +222,7 @@ public class SetFile implements Iterable<String> {
                 cache[1] = value;
                 try {
                     newkeys.put(key,value);
-                    if (newkeys.size() % 1000 == 0 && Runtime.getRuntime().freeMemory() < availableMemory / 2) {
+                    if (newkeys.size() % 10000 == 0 && Runtime.getRuntime().freeMemory() < availableMemory / 2) {
                         merge();
                     }
 
@@ -242,21 +243,29 @@ public class SetFile implements Iterable<String> {
         if (newkeys.size() > 0) {
             //System.err.println("MERGE newkeys.size() = "+newkeys.size() +" Tot MEMORY=" + Runtime.getRuntime().totalMemory() +" FREE MEMORY=" + Runtime.getRuntime().freeMemory());
             if (DEBUG)
-                System.err.println(countmergedfiles+ " Adding " + newkeys.size() + " keys");
+                //System.err.println(countmergedfiles+ " Adding " + newkeys.size() + " keys");
+                System.err.println("# Adding " + newkeys.size() + " new keys");
             List<String> listaddedkeys = Collections.list(newkeys.keys());
             Collections.sort(listaddedkeys);
-            countmergedfiles++;
-            File outputMrg = new File(file.getCanonicalPath() + countmergedfiles + ".mrg");
             try {
-                RandomAccessFile outra = new RandomAccessFile(outputMrg, "rw");
+                //countmergedfiles++;
+                //File output = new File(file.getCanonicalPath() + countmergedfiles + ".mrg");
+                File output = new File(file.getCanonicalPath() + ".mrg");
+                RandomAccessFile outmrg = new RandomAccessFile(output,"rw");
+                int rasize =  this.size();
+                outmrg.seek(0);
+                outmrg.writeInt(rasize);
+                outmrg.writeInt(0);
+                outmrg.writeLong(0);
 
-                int rasize = this.size();
+                rafile.seek(0);
+                rafile.readInt();
+                rafile.readInt();
+                rafile.readLong();
 
-                outra.writeInt(rasize);
-                outra.writeInt(0);
-                outra.writeLong(0);
-
-                String line = rafile.readLine();
+                //String line = rafile.readLine();
+                String line = rafile.readUTF();
+                rafile.readLine();
                 int hashpos = 0;
                 int compareCondition;
                 String newline = "";
@@ -265,7 +274,9 @@ public class SetFile implements Iterable<String> {
                     if (line == null || line.length() == 0 || this.unsortedPos < rafile.getFilePointer()) {
                         if (newline.length() > 0) {
                             savedCounter++;
-                            outra.writeBytes(newline + "\n");
+                            //outra.writeBytes(newline + "\n");
+                            outmrg.writeUTF(newline);
+                            outmrg.writeBytes("\n");
                         }
 
                         break;
@@ -273,28 +284,45 @@ public class SetFile implements Iterable<String> {
                         if (hashpos < listaddedkeys.size()) {
                             int pos = line.lastIndexOf(SEPARATOR);
                             if (pos > 0 && listaddedkeys.get(hashpos) != null) {
-                                compareCondition = line.substring(0,pos).compareTo((String) listaddedkeys.get(hashpos));
+                                compareCondition = line.substring(0,pos).compareTo(listaddedkeys.get(hashpos));
                                 if (compareCondition < 0) {
-                                    newline =line;
-                                    line = rafile.readLine();
+                                    newline=line;
+                                    //line = rafile.readLine();
+                                    System.err.println("rafile: "+ rafile.getFilePointer() + " " +rafile.length());
+                                    if (rafile.getFilePointer() < rafile.length())  {
+                                        line = rafile.readUTF();
+                                        rafile.readLine();
+                                    } else
+                                        line = null;
                                 } else if (compareCondition > 0) {
                                     newline = listaddedkeys.get(hashpos) + SEPARATOR + newkeys.get(listaddedkeys.get(hashpos));
                                     hashpos++;
                                 } else {
                                     newline = line.substring(0,pos) + SEPARATOR + newkeys.get(listaddedkeys.get(hashpos));
                                     hashpos++;
-                                    line = rafile.readLine();
-                                }
+                                    //line = rafile.readLine();
+                                    if (rafile.getFilePointer() < rafile.length()) {
+                                        line = rafile.readUTF();
+                                        rafile.readLine();
+                                    } else
+                                        line = null;                                }
                             } else {
                                 throw new Exception("# WARNING! The file " + file + " is corrupted (line separator is missed)\n" + rafile.getFilePointer() + ": " + line);
                             }
                         } else {
                             newline = line;
-                            line = rafile.readLine();
-                        }
+                            //line = rafile.readLine();
+                            if (rafile.getFilePointer() < rafile.length()) {
+                                line = rafile.readUTF();
+                                rafile.readLine();
+                            } else
+                                line = null;                        }
                     }
                     savedCounter++;
-                    outra.writeBytes(newline + "\n");
+                    //outra.writeBytes(newline + "\n");
+                    outmrg.writeUTF(newline);
+                    outmrg.writeBytes("\n");
+
                     newline="";
                     //numkey++;
                     //System.err.println(a + " && " + hashpos + " >= " +  listaddedkeys.size());
@@ -302,56 +330,51 @@ public class SetFile implements Iterable<String> {
                 }
                 for (int i=hashpos; i<listaddedkeys.size(); i++) {
                     savedCounter++;
-                    outra.writeBytes(listaddedkeys.get(i) + SEPARATOR + newkeys.get(listaddedkeys.get(i)) +"\n");
+                    //outra.writeBytes(listaddedkeys.get(i) + SEPARATOR + newkeys.get(listaddedkeys.get(i)) +"\n");
+                    outmrg.writeUTF(listaddedkeys.get(i) + SEPARATOR + newkeys.get(listaddedkeys.get(i)));
+                    outmrg.writeBytes("\n");
                 }
 
-                this.unsortedPos = outra.getFilePointer();
-                
+                this.unsortedPos = outmrg.getFilePointer();
+
                 if (savedCounter != rasize) {
                     System.err.println("# WARNING! The size should be " + rasize + " ("+file.getCanonicalPath()+ " lines are " + savedCounter + ")");
-                    outra.seek(0);
-                    outra.writeInt(savedCounter);
                 }
-                outra.seek(8);
-                outra.writeLong(this.unsortedPos);
-
-                outra.close();
+                outmrg.seek(0);
+                outmrg.writeInt(savedCounter);
+                outmrg.writeInt(0);
+                outmrg.writeLong(this.unsortedPos);
+                outmrg.close();
 
                 rafile.close();
                 rafile = null;
 
                 if (file.delete()) {
-                    if (!outputMrg.renameTo(file)) {
-                        System.err.println("WARNING! Rename failed " + outputMrg);
+                    if (!output.renameTo(file)) {
+                        System.err.println("WARNING! Rename failed " + output);
                     }
-                } else {
-                    System.err.println("WARNING! The file "+file+" hasn't been managed well.");
-                }
 
+                } else {
+                    System.err.println("WARNING! The file "+file+" cannot be deleted.");
+                }
                 reset();
 
                 //System.err.println(file.delete() +"  merge kyb: " + );
                 rafile = new RandomAccessFile(file,"rw");
                 isReadable = true;
-                
+
                 setGoodJumps();
                 newkeys.clear();
                 this.unsortedSize = 0;
                 this.writeUnsortedSize(this.unsortedSize);
-                this.unsortedPos = this.readUnsortedPosition();
-
 
             } catch (FileNotFoundException e) {
-                System.err.println("ERROR! " +e.getMessage());
+                System.err.println("ERROR! Set file hasn't found! " +e.getMessage());
+                //e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             } catch (IOException e) {
-                System.err.println("ERROR on merging " + file + " file: " +e.getMessage());
-                //System.err.println(e.getMessage());
-            } finally {
-                if (outputMrg.exists()) {
-                    outputMrg.delete();
-                }
-                availableMemory = Runtime.getRuntime().freeMemory();
-
+                System.err.println("ERROR! Failed merging on file " + file + ": " +e.getMessage());
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+                System.exit(0);
             }
         }
     }
@@ -379,11 +402,6 @@ public class SetFile implements Iterable<String> {
             try {
 
                 String line, substr;
-
-                long min = getMinPosition(str);
-                long max = this.unsortedPos;
-                //long max = getMaxPosition(str);
-                long mid= (min+max) / 2;
 
                 //parto da dove sono per risparmiare tempo
                 //System.err.println (rafile.getFilePointer() + "> " + str);
@@ -413,232 +431,66 @@ public class SetFile implements Iterable<String> {
                    max = this.unsortedPos();
                } */
 
-
-                String lastline;
-                long lastPos = min;
                 if (DEBUG)
                     System.err.println("SEARCHING " +str);
+                readUnsortedPosition();
+                long startPointer = rafile.getFilePointer();
+                long min = startPointer;
+                long max = this.unsortedPos;
+                long mid= (min+max) / 2;
 
-                //controllo la prima riga
-                rafile.seek(min);
-                if ((line = rafile.readLine()) != null) {
-                    if (line.lastIndexOf(SEPARATOR) > 0) {
-                        if (str.equals(line.substring(0,line.lastIndexOf(SEPARATOR)))) {
-                            if (DEBUG)
-                                System.err.println("FOUND " +str);
-                            return line.substring(line.lastIndexOf(SEPARATOR) + SEPARATOR.length());
-                        }
-                    }
-                }
+                //rafile.seek(min);
+                byte ch;
+                while (mid > startPointer && mid < (max - 1)) {
+                    //System.err.println("\n1min: " +min + ", mid: " + mid + ", max: " +max + ", filePointer="+rafile.getFilePointer());
+                    mid = rafile.getFilePointer();
+                    while (rafile.getFilePointer() > startPointer) {
+                        rafile.seek(rafile.getFilePointer() -2);
+                        ch = (byte) rafile.read();
 
-                while (mid > 16 && mid < (max - 1)) {
-                    rafile.seek(mid);
-
-                    if (lastPos != rafile.getFilePointer()) {
-                        rafile.readLine();
-                        lastPos = rafile.getFilePointer();
-                        //if (goodjumpposition.size() < 10000)
-                        //    goodjumpposition.put(mid, lastPos);
-                    } else {
-                        if (lastPos != 16) {
-                            //System.out.println("lastPos " +lastPos + ", getFilePointer " + rafile.getFilePointer());
-                            //if (mid != 16) {
-                            long restline = 0;
-
-                            while (true)  {
-                                lastline = rafile.readLine();
-
-                                if (lastline != null) {
-                                    if(lastline.length() < restline || lastline.length() == 0) {
-                                        break;
-                                    } else {
-                                        restline = restline + lastline.length();
-                                    }
-                                } else {
-                                    break;
-                                }
-                                if (mid - restline < 16) {
-                                    return null;
-                                } else {
-                                    rafile.seek(mid - restline);
-                                }
-
-                            }
-
+                        if (ch == '\n' || ch == '\r') {
+                            break;
                         }
                     }
 
+                    if (rafile.getFilePointer() < startPointer) {
+                        rafile.seek(startPointer);
+                    }
 
-                    if ((line = rafile.readLine()) != null) {
-                        //if (DEBUG)
-                        //  System.err.println("FIND " + mid + "," + rafile.getFilePointer() + " " + line);
-
+                    //if ((line = rafile.readLine()) != null) {
+                    if ((line = rafile.readUTF()) != null) {
+                        if (DEBUG)
+                            System.err.println("FIND " + startPointer + "," + rafile.getFilePointer() + " (" + line +")");
                         if (line.lastIndexOf(SEPARATOR) > 0) {
                             substr = line.substring(0,line.lastIndexOf(SEPARATOR));
 
                             if (str.equals(substr)) {
                                 if (DEBUG)
-                                    System.err.println("FOUND " +str);
-                                return line.substring(line.lastIndexOf(SEPARATOR) + SEPARATOR.length());
+                                    System.err.println("FOUND {{" +str + "}}");
+                                return line.substring(line.lastIndexOf(SEPARATOR) + SEPARATOR.length()).replaceAll("[\n|\r].*","");
                             } else {
                                 if (substr.compareTo(str) < 0) {
-                                    //System.err.println(line + "> " + str);
-                                    min = mid+1;
-                                    //min = mid;
+                                    //System.err.println("SET MIN: " + line + "> " + str);
+                                    //min = rafile.getFilePointer()+1;
+                                    //min = rafile.getFilePointer();
+                                    min = mid;
                                 } else {
+                                    //System.err.println("SET MAX: " + line + "> " + str);
                                     //System.err.println(line + "< " + str + " " +min +"<=" + max + " && " + mid + " < " + (max - 1));
-                                    max = mid-1;
+                                    max = mid;
                                     //max = mid;
                                 }
                             }
                         }
 
-                        if (max == rafile.getFilePointer()) {
-                            break;
-                        }
+                        //if (max == rafile.getFilePointer()) {
+                        //  break;
+                        //}
                         mid = (min+max) / 2;
                     } else {
                         break;
                     }
-
-
-                }
-
-            } catch (IOException e ) {
-                //e.printStackTrace();
-                System.err.println("Warning! Binary search error on file: " +file);
-            }
-        }
-        return null;
-    }
-
-    //ricerca binaria di una linea che finisce per SEPARATOR + str
-    private synchronized String binarySearch_LAST(String str) {
-        if (!isReadable)
-            return null;
-
-        if (newkeys.containsKey(str)) {
-            if (DEBUG)
-                System.err.println("hash searching " +str);
-
-            return newkeys.get(str);
-        } else {
-            try {
-
-                String line = null, substr;
-
-                long min = 16;
-                long max = this.unsortedPos;
-                long mid= (min+max) / 2;
-
-                //parto da dove sono per risparmiare tempo
-                //System.err.println (rafile.getFilePointer() + "> " + str);
-
-                //se faccio la ricerca partendo dall'ultima posizione letta
-                // (todo sembra che non si risparmi nulla anzi le prestazioni peggiorano leggermente, da RIVEDERE)
-                /*line = rafile.readLine();
-                if (line != null ) {
-                    substr = line.substring(0,line.lastIndexOf(SEPARATOR));
-                    if (str.equals(substr)) {
-                        return line.substring(line.lastIndexOf(SEPARATOR) + SEPARATOR.length());
-                    } else {
-                        //System.err.println(line.substring(0,line.indexOf(SEPARATOR)) + ")).compareTo(" + str + ")");
-                        if (substr.compareTo(str) < 0) {
-                            //System.err.println(line + "> " + str);
-                            min = rafile.getFilePointer();
-                            max = this.unsortedPos;
-
-                        } else {
-                            //System.err.println(line + "< " + str + " " +min +"<=" + max + " && " + mid + " < " + (max - 1));
-                            max = rafile.getFilePointer();
-
-                        }
-                        rafile.seek(min);
-                    }
-                } else {
-                    max = this.unsortedPos;
-                } */
-
-
-                String lastline;
-
-                if (DEBUG)
-                    System.err.println("SEARCHING " +str);
-
-                //controllo la prima riga
-                rafile.seek(min);
-                if ((line = rafile.readLine()) != null) {
-                    if (line.lastIndexOf(SEPARATOR) > 0) {
-                        substr = line.substring(0,line.lastIndexOf(SEPARATOR));
-
-                        if (str.equals(substr)) {
-                            if (DEBUG)
-                                System.err.println("FOUND " +str);
-                            return line.substring(line.lastIndexOf(SEPARATOR) + SEPARATOR.length());
-                        }
-                    }
-                }
-
-
-                while (mid > 16 && mid < (max - 1)) {
                     rafile.seek(mid);
-                    //if (DEBUG)
-                    //  System.err.println("FIRST " + mid + "," + rafile.getFilePointer() + " " + line);
-
-                    long restline = 0;
-
-                    while (true)  {
-                        lastline = rafile.readLine();
-
-                        if (lastline != null) {
-                            if(lastline.length() < restline || lastline.length() == 0) {
-                                break;
-                            } else {
-                                restline = restline + lastline.length();
-                            }
-                        } else {
-                            break;
-                        }
-                        if (mid - restline < 16) {
-                            return null;
-                        } else {
-                            rafile.seek(mid - restline);
-                        }
-
-                    }
-                    //}
-
-                    if ((line = rafile.readLine()) != null) {
-                        //if (DEBUG)
-                        //  System.err.println("FIND " + mid + "," + rafile.getFilePointer() + " " + line);
-
-                        if (line.lastIndexOf(SEPARATOR) > 0) {
-                            substr = line.substring(0,line.lastIndexOf(SEPARATOR));
-
-                            if (str.equals(substr)) {
-                                if (DEBUG)
-                                    System.err.println("FOUND " +str);
-                                return line.substring(line.lastIndexOf(SEPARATOR) + SEPARATOR.length());
-                            } else {
-                                if (substr.compareTo(str) < 0) {
-                                    System.err.println(line + "> " + str);
-                                    min = mid;
-                                } else {
-                                    System.err.println(line + "< " + str + " " +min +"<=" + max + " && " + mid + " < " + (max - 1));
-                                    max = mid;
-                                }
-                            }
-                        }
-
-                        if (max == rafile.getFilePointer()) {
-                            break;
-                        }
-                        mid = (min+max) / 2;
-                    } else {
-                        break;
-                    }
-
-
                 }
 
             } catch (IOException e ) {
@@ -694,7 +546,7 @@ public class SetFile implements Iterable<String> {
 
     private synchronized int readUnsortedSize() {
         try {
-            rafile.seek(4);
+            readSize();
             return rafile.readInt();
 
         } catch (IOException e) {
@@ -705,7 +557,7 @@ public class SetFile implements Iterable<String> {
 
     private synchronized void writeUnsortedSize(int num) {
         try {
-            rafile.seek(4);
+            readSize();
             rafile.writeInt(num);
 
         } catch (IOException e) {
@@ -715,9 +567,8 @@ public class SetFile implements Iterable<String> {
 
     private synchronized long readUnsortedPosition() {
         try {
-            rafile.seek(8);
+            size();
             return rafile.readLong();
-
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -726,7 +577,7 @@ public class SetFile implements Iterable<String> {
 
     private synchronized void writeUnsortedPosition(long num) {
         try {
-            rafile.seek(8);
+            size();
             rafile.writeLong(num);
 
         } catch (IOException e) {
@@ -739,69 +590,81 @@ public class SetFile implements Iterable<String> {
     }
 
     public synchronized void clear() {
-        if (file != null) {
-            try {
+        try {
+            if (file != null) {
                 if (rafile != null)
                     rafile.close();
                 if (file.exists()) {
                     file.delete();
                     //System.err.println("Creating setfile: " + file.getCanonicalPath());
                 }
-                file.createNewFile();
-                rafile = new RandomAccessFile(file.getCanonicalPath(),"rw");
-                this.writeSize(0);
-                this.writeUnsortedSize(0);
-                this.writeUnsortedPosition(16);
-
-                isReadable = true;
-
-                //rafile.setLength(0);
-                //System.err.println("Controllo lo stato di rafile (" + file.getName() + "): ");
-
-            } catch (IOException e) {
-                e.printStackTrace();
             }
+
+            file.createNewFile();
+            rafile = new RandomAccessFile(file.getCanonicalPath(),"rw");
+            this.writeSize(0);
+            this.writeUnsortedSize(0);
+            this.writeUnsortedPosition(16);
+
+            isReadable = true;
+
+            //rafile.setLength(0);
+            //System.err.println("Controllo lo stato di rafile (" + file.getName() + "): ");
+
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
+
 
     //Iterable interface
     public synchronized Iterator<String> iterator() {
         try {
             merge();
-            rafile.seek(16);
+            size();
+            rafile.readLong();
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return new Iterator<String>() {
-            long currpos = 16;
-            public boolean hasNext() {
-                try {
-                    if (rafile.getFilePointer() != currpos)
-                        rafile.seek(currpos);
-                    //System.err.println("SetFile hasNext(): " +rafile.getFilePointer() +"<"+ rafile.length());
-                    return (currpos < rafile.length());
-                } catch (IOException e) {
-                    return false;
+
+        try {
+            return new Iterator<String>() {
+                long currpos = rafile.getFilePointer();
+                public boolean hasNext() {
+                    try {
+                        if (rafile.getFilePointer() != currpos)
+                            rafile.seek(currpos);
+                        //System.err.println("SetFile hasNext(): " +rafile.getFilePointer() +"<"+ rafile.length());
+                        return (currpos < rafile.length());
+                    } catch (IOException e) {
+                        return false;
+                    }
                 }
-            }
-            public String next() {
-                try {
-                    if (rafile.getFilePointer() != currpos)
-                        rafile.seek(currpos);
-                    String line=rafile.readLine();
-                    currpos = rafile.getFilePointer();
-                    //System.err.println("SetFile next(): " +rafile.getFilePointer() +" "+ line);
-                    if (line.indexOf(SEPARATOR) > 0)
-                        return line.substring(0, line.lastIndexOf(SEPARATOR));
-                } catch (IOException e) {
-                    e.printStackTrace();
+                public String next() {
+                    try {
+                        if (rafile.getFilePointer() != currpos)
+                            rafile.seek(currpos);
+                        //String line=rafile.readLine();
+                        String line=rafile.readUTF();
+                        rafile.readLine();
+
+                        currpos = rafile.getFilePointer();
+                        //System.err.println("SetFile next(): " +rafile.getFilePointer() +" "+ line);
+                        if (line.indexOf(SEPARATOR) > 0)
+                            return line.substring(0, line.lastIndexOf(SEPARATOR));
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    return null;
                 }
-                return null;
-            }
-            public void remove() {
-                throw new UnsupportedOperationException();
-            }
-        };
+                public void remove() {
+                    throw new UnsupportedOperationException();
+                }
+            };
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     //test the class
@@ -815,6 +678,34 @@ public class SetFile implements Iterable<String> {
             if (args.length < 1) {
                 System.err.println("No input file found.");
                 return;
+            } else if (args[0].equalsIgnoreCase("-test")) {
+                String strfile ="/tmp/_test.set";
+                File tmpfile = new File(strfile);
+                if (tmpfile.exists())
+                    tmpfile.delete();
+                SetFile setfile = new SetFile(strfile);
+                setfile.put("http://en.wikinews.org/wiki/Apple_introduces_new_iPod_with_video_playback_capabilities", "13");
+                setfile.put("http://en.wikinews.org/wiki/Apple_executive_leaves_company_after_iPhone_4_antenna_issues", "11691");
+                setfile.put("http://en.wikinews.org/wiki/Apple_Inc._CEO_Steve_Jobs_on_medical_leave","13555");
+                setfile.put("http://en.wikinews.org/wiki/Apple_executive_Steve_Jobs_resigns", "15348");
+                setfile.put("http://en.wikinews.org/wiki/Apple_Inc._co-founder_Steve_Jobs_dies_aged_56", "18352");
+                setfile.close();
+
+                setfile = new SetFile(strfile);
+
+                if (!setfile.contains("http://en.wikinews.org/wiki/Apple_Inc._CEO_Steve_Jobs_on_medical_leave")) {
+                    setfile.put("http://en.wikinews.org/wiki/Apple_Inc._CEO_Steve_Jobs_on_medical_leave","21601");
+                    System.err.println("An item doesn't found!");
+                }
+                //setfile.put("http://en.wikinews.org/wiki/Apple_Inc._CEO_Steve_Jobs_on_medical_leave","1");
+
+                if (setfile.size() == 5 && setfile.contains("http://en.wikinews.org/wiki/Apple_Inc._CEO_Steve_Jobs_on_medical_leave")) {
+                    System.err.println("TEST PASSED!");
+                } else {
+                    System.err.println("TEST FAILED!");
+                }
+                setfile.close();
+
             } else if (args.length == 2 && args[0].equalsIgnoreCase("-l")) {
                 SetFile setfile = new SetFile(args[1]);
                 Iterator it = setfile.iterator();
@@ -825,7 +716,7 @@ public class SetFile implements Iterable<String> {
                     val = setfile.get(key);
                     if(val == null)
                         num_null++;
-                    System.out.println("> " +key + " " + val);
+                    System.err.println("> " +key + " " + val);
                     num++;
                 }
                 setfile.close();
@@ -860,7 +751,7 @@ public class SetFile implements Iterable<String> {
                         } else {
                             //System.err.println(items[i]);
                             if (isSetFile)
-                                words.put(key, Integer.valueOf(line.substring(line.lastIndexOf(SEPARATOR)+SEPARATOR.length())));
+                                words.put(key, Integer.valueOf(line.substring(line.lastIndexOf(SEPARATOR)+SEPARATOR.length()).replaceAll("[\n|\r].*","")));
                             else
                                 words.put(key, -1);
                         }
