@@ -40,7 +40,7 @@ public class TextproParser implements CGTDocumentInterface {
                 
                 // run TextPro
                 String[] CONFIG = {"TEXTPRO=" + TEXTPRO_PATH, "PATH=" + "/usr/bin/" + ":."};
-                String[] cmd = {"/bin/tcsh", "-c", "perl " + TEXTPRO_PATH + "/textpro.pl -l eng -y "+tmpFile};
+                String[] cmd = {"/bin/tcsh", "-c", "perl " + TEXTPRO_PATH + "/textpro.pl -l eng -c token+pos+lemma+sentence -y "+tmpFile};
                 Process process = run(cmd, CONFIG);
                 process.waitFor();
 
@@ -49,7 +49,9 @@ public class TextproParser implements CGTDocumentInterface {
                 StringBuilder result = new StringBuilder();
                 String line;
                 while ((line = txpFile.readLine()) != null) {
-                    result.append(line).append("\n");
+                    if (!line.startsWith("# FILE:")) {
+                        result.append(line).append("\n");
+                    }
                 }
                 txpFile.close();
 

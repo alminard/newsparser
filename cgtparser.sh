@@ -2,7 +2,7 @@
 
 HOMEDIR=./
 
-CLASSPATH="./:$HOMEDIR/classes/:$HOMEDIR/lib/jdom.jar"
+CLASSPATH="./:$HOMEDIR/lib/newsarchive1.0.jar:$HOMEDIR/lib/jericho-html-3.3.jar:$HOMEDIR/lib/jdom.jar:$HOMEDIR/lib/commons-compress-1.2.jar"
 export CLASSPATH
 
 cmd="java -Dfile.encoding=UTF8 -ms256m -mx512m fbk.hlt.utility.archive.CGTParser $*" 
