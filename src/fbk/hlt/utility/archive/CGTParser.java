@@ -1,3 +1,4 @@
+package fbk.hlt.utility.archive;
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -15,8 +16,6 @@
  * limitations under the License.
  */
 
-package fbk.hlt.utility.archive;
-
 import java.util.*;
 import java.lang.reflect.Method;
 import java.lang.reflect.InvocationTargetException;
@@ -24,6 +23,7 @@ import java.io.*;
 import java.net.URI;
 import java.nio.charset.Charset;
 
+import eu.fbk.nwrtools.URICleaner;
 import org.jdom.output.XMLOutputter;
 import org.jdom.output.Format;
 import org.jdom.Element;
@@ -105,7 +105,7 @@ public class CGTParser {
                     if (optionValues.get("LISTOFURLS") == Boolean.TRUE) {
                         while(key != null) {
                             docnum++;
-                            System.out.println(key);
+                            System.out.println(key + " >> " +cgt.contains(key));
                             key = cgt.nextKey();
                         }
 
@@ -390,7 +390,7 @@ public class CGTParser {
         if (!cgt.contains(key)) {
             return 0;
         }
-        URI url = URI.create(key);
+        URI url = URICleaner.cleanURI(key);
 
         String filepath = "";
         if (url.getPath().matches("^/*$")) {
